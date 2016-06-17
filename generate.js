@@ -8,13 +8,13 @@ var program = require('commander');
 
 const geckoPath = '/home/zbraniecki/projects/mozilla/gecko-dev';
 
-const dtdNum = 1;
+const dtdNum = 2;
 const dtdEntitiesNum = 10;
-const propNum = 1;
+const propNum = 2;
 const propEntitiesNum = 10;
-const l20nNum = 1;
+const l20nNum = 2;
 const l20nEntitiesNum = 10;
-const old = true;
+const old = false;
 
 function injectChunk(path, startChunk, endChunk, newChunk) {
   const val = fs.readFileSync(path).toString();
@@ -50,8 +50,8 @@ function createPropertiesFiles() {
 function createL20nFiles() {
   for (let i = 0; i < l20nNum; i++) {
     let source = '';
-    for (let j = 0; j <  l20nEntitiesNum; j++) {
-      source += `prop-entity-id-${i}${j} = Test Entity with a value. The number is ${i}.${j}\n`;
+    for (let j = 0; j <  l20nEntitiesNum * 2; j++) {
+      source += `l20n-entity-id-${i}${j} = Test Entity with a value. The number is ${i}.${j}\n`;
     }
     fs.writeFileSync(`${geckoPath}/browser/locales/en-US/chrome/browser/perftest/file${i}.ftl`, source);
   }
@@ -97,7 +97,7 @@ function updateOldBrowserXulHead() {
 function updateOldBrowserXulBody() {
   const path = `${geckoPath}/browser/base/content/browser.xul`;
   const startChunk = 'title="Test Window">';
-  const endChunk = '\n  <script type';
+  const endChunk = '\n  <label id="props">';
 
   let newChunk = '';
 
@@ -146,22 +146,52 @@ function updateNewBrowserXulHead() {
 function updateNewBrowserXulBody() {
   const path = `${geckoPath}/browser/base/content/browser.xul`;
   const startChunk = 'title="Test Window">';
-  const endChunk = '\n  <script type';
+  const endChunk = '\n  <label id="props">';
 
   let newChunk = '';
 
   newChunk += '\n  <script type="application/javascript" src="chrome://global/content/l20n-chrome-observer.js"/>'
-  newChunk += '\n  <localization>';
   for (let i = 0; i < l20nNum; i++) {
-    newChunk += `\n    <source src="chrome://browser/locale/perftest/file${i}.ftl"/>`;
+    let name = i === 0 ? '' : ` name="bundle${i}"`;
+    newChunk += `\n  <localization${name}>`;
+    newChunk += `\n    <source src="/test/file${i}.ftl"/>`;
+    newChunk += '\n  </localization>';
   }
-  newChunk += '\n  </localization>\n\n';
+  newChunk += '\n';
 
-  for (let i = 0; i < dtdNum; i++) {
-    for (let j = 0; j < dtdEntitiesNum; j++) {
-      newChunk += `\n  <label data-l10n-id="entity-id-${i}${j}"></label>`;
+  for (let i = 0; i < l20nNum / 2; i++) {
+    for (let j = 0; j < l20nEntitiesNum * 2; j++) {
+      newChunk += `\n  <label data-l10n-id="l20n-entity-id-${i}${j}"></label>`;
     }
   }
+
+  injectChunk(path, startChunk, endChunk, newChunk);
+}
+
+function updateNewBrowserJs() {
+  const path = `${geckoPath}/browser/base/content/browser.js`;
+  const startChunk = 'var x = 1;';
+  const endChunk = '\nvar y = 2;';
+
+  let newChunk = '';
+  
+  newChunk += `\n
+  function loadEntities() {
+    var str = "";
+    for (var i = ${l20nNum / 2}; i < ${l20nNum}; i++) {
+      var bundle = document.l10n.get("bundle" + i);
+      var ids = [];
+      for (var j = 0; j < ${l20nEntitiesNum} * 2; j++) {
+        ids.push('l20n-entity-id-' + i + "" + j);
+      }
+      bundle.formatValues(...ids).then(vals => {
+        str += vals.join(', ');
+        document.getElementById("props").innerHTML = str
+      });
+    }
+  }
+  window.addEventListener('load', loadEntities);
+  `;
 
   injectChunk(path, startChunk, endChunk, newChunk);
 }
@@ -178,5 +208,6 @@ if (old) {
 } else {
   updateNewBrowserXulHead();
   updateNewBrowserXulBody();
+  updateNewBrowserJs();
 }
 
